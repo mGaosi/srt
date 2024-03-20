@@ -643,7 +643,7 @@ private:
 
     SRT_ATR_NODISCARD int recvmsg(char* data, int len, int64_t& srctime);
     SRT_ATR_NODISCARD int recvmsg2(char* data, int len, SRT_MSGCTRL& w_m);
-    SRT_ATR_NODISCARD int receiveMessage(char* data, int len, SRT_MSGCTRL& w_m, int erh = 1 /*throw exception*/);
+    SRT_ATR_NODISCARD int receiveMessage(char* data, int len, SRT_MSGCTRL& w_m, int erh /*throw exception*/);
     SRT_ATR_NODISCARD int receiveBuffer(char* data, int len);
 
     size_t dropMessage(int32_t seqtoskip);

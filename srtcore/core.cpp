@@ -6942,7 +6942,7 @@ int srt::CUDT::recvmsg2(char* data, int len, SRT_MSGCTRL& w_mctrl)
     }
 
     if (m_config.bMessageAPI)
-        return receiveMessage(data, len, (w_mctrl));
+        return receiveMessage(data, len, (w_mctrl), 0);
 
     return receiveBuffer(data, len);
 }
