@@ -53,6 +53,7 @@ modified by
 #include "platform_sys.h"
 
 #include <cstring>
+#include <algorithm>
 
 #include "common.h"
 #include "api.h"
@@ -681,7 +682,8 @@ void srt::CRcvUList::update(const CUDT* u)
     if (!n->m_bOnList)
         return;
 
-    n->m_tsTimeStamp = steady_clock::now();
+    const int32_t nCheckInterval = (std::min)((std::max)(u->SRTT() << 1, 1000), 10000);
+    n->m_tsTimeStamp = steady_clock::now() + microseconds_from(nCheckInterval);
 
     // if n is the last node, do not need to change
     if (NULL == n->m_pNext)
@@ -1218,7 +1220,6 @@ void* srt::CRcvQueue::worker(void* param)
     EConnectStatus cst  = CONN_AGAIN;
     while (!self->m_bClosing)
     {
-        bool        have_received = false;
         EReadStatus rst           = self->worker_RetrieveUnit((id), (unit), (sa));
 
         INCREMENT_THREAD_ITERATIONS();
@@ -1258,9 +1259,13 @@ void* srt::CRcvQueue::worker(void* param)
             if (cst == CONN_AGAIN)
             {
                 HLOGC(qrlog.Debug, log << self->CONID() << "worker: packet not dispatched, continuing reading.");
-                continue;
             }
-            have_received = true;
+            else
+            {
+                HLOGC(qrlog.Debug,
+                    log << "worker: RECEIVED PACKET --> updateConnStatus. cst=" << ConnectStatusStr(cst) << " id=" << id
+                    << " pkt-payload-size=" << unit->m_Packet.getLength());
+            }
         }
         else if (rst == RST_ERROR)
         {
@@ -1286,11 +1291,10 @@ void* srt::CRcvQueue::worker(void* param)
         // OTHERWISE: this is an "AGAIN" situation. No data was read, but the process should continue.
 
         // take care of the timing event for all UDT sockets
-        const steady_clock::time_point curtime_minus_syn =
-            steady_clock::now() - microseconds_from(CUDT::COMM_SYN_INTERVAL_US);
+        const steady_clock::time_point now = steady_clock::now();
 
         CRNode* ul = self->m_pRcvUList->m_pUList;
-        while ((NULL != ul) && (ul->m_tsTimeStamp < curtime_minus_syn))
+        while ((NULL != ul) && (ul->m_tsTimeStamp <= now))
         {
             CUDT* u = ul->m_pUDT;
 
@@ -1310,13 +1314,6 @@ void* srt::CRcvQueue::worker(void* param)
             }
 
             ul = self->m_pRcvUList->m_pUList;
-        }
-
-        if (have_received)
-        {
-            HLOGC(qrlog.Debug,
-                  log << "worker: RECEIVED PACKET --> updateConnStatus. cst=" << ConnectStatusStr(cst) << " id=" << id
-                      << " pkt-payload-size=" << unit->m_Packet.getLength());
         }
 
         // Check connection requests status for all sockets in the RendezvousQueue.
@@ -1473,9 +1470,6 @@ srt::EConnectStatus srt::CRcvQueue::worker_ProcessAddressedPacket(int32_t id, CU
         u->processCtrl(unit->m_Packet);
     else
         u->processData(unit);
-
-    u->checkTimers();
-    m_pRcvUList->update(u);
 
     return CONN_RUNNING;
 }
