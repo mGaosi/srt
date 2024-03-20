@@ -84,7 +84,7 @@ public:
 
         m_zHeaderSize = parent->m_config.iMSS - parent->maxPayloadSize();
 
-        m_iMinNakInterval_us = 20000;   //Minimum NAK Report Period (usec)
+        m_iMinNakInterval_us = 2000; //Minimum NAK Report Period (usec)
         m_iNakReportAccel = 2;       //Default NAK Report Period (RTT) accelerator (send periodic NAK every RTT/2)
 
         HLOGC(cclog.Debug, log << "Creating LiveCC: bw=" << m_llSndMaxBW << " avgplsize=" << m_zSndAvgPayloadSize);

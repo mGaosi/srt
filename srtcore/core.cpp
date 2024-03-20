@@ -9538,9 +9538,6 @@ bool srt::CUDT::isRetransmissionAllowed(const time_point& tnow SRT_ATR_UNUSED)
     if (!m_bPeerTLPktDrop || !m_config.bMessageAPI)
         return true;
 
-    // TODO: lock sender buffer?
-    const time_point tsNextPacket = m_pSndBuffer->peekNextOriginal();
-
 #if SRT_DEBUG_TRACE_SND
     const int buffdelay_ms = count_milliseconds(m_pSndBuffer->getBufferingDelay(tnow));
     // If there is a small loss, still better to retransmit. If timespan is already big,
@@ -9559,12 +9556,6 @@ bool srt::CUDT::isRetransmissionAllowed(const time_point& tnow SRT_ATR_UNUSED)
     g_snd_logger.state.canRexmit = false;
 #endif
 
-    if (tsNextPacket != time_point())
-    {
-        // Can send original packet, so just send it
-        return false;
-    }
-
 #ifdef ENABLE_MAXREXMITBW
     m_SndRexmitRate.addSample(tnow, 0, 0); // Update the estimation.
     const int64_t iRexmitRateBps = m_SndRexmitRate.getRate();
@@ -9580,7 +9571,8 @@ bool srt::CUDT::isRetransmissionAllowed(const time_point& tnow SRT_ATR_UNUSED)
 #if SRT_DEBUG_TRACE_SND
     g_snd_logger.state.canRexmit = true;
 #endif
-    return true;
+
+    return m_pSndLossList && m_pSndLossList->getLossLength() > 0;
 }
 
 bool srt::CUDT::packData(CPacket& w_packet, steady_clock::time_point& w_nexttime, sockaddr_any& w_src_addr)
