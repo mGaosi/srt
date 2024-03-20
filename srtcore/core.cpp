@@ -7762,7 +7762,7 @@ bool srt::CUDT::updateCC(ETransmissionEvent evt, const EventVariant arg)
         // - m_dCWndSize
         m_tdSendInterval    = microseconds_from((int64_t)m_CongCtl->pktSndPeriod_us());
         const double cgwindow = m_CongCtl->cgWindowSize();
-        m_iCongestionWindow = cgwindow;
+        m_iCongestionWindow = static_cast<int>(cgwindow);
 #if ENABLE_HEAVY_LOGGING
         HLOGC(rslog.Debug,
               log << CONID() << "updateCC: updated values from congctl: interval=" << FormatDuration<DUNIT_US>(m_tdSendInterval)
