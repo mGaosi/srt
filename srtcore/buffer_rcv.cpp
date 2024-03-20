@@ -406,9 +406,11 @@ int CRcvBuffer::readMessage(char* data, size_t len, SRT_MSGCTRL* msgctrl)
 
     size_t remain = len;
     char* dst = data;
-    int    pkts_read = 0;
-    int    bytes_extracted = 0; // The total number of bytes extracted from the buffer.
-    const bool updateStartPos = (readPos == m_iStartPos); // Indicates if the m_iStartPos can be changed
+    int pkts_read = 0;
+    int bytes_extracted = 0;                               // The total number of bytes extracted from the buffer.
+    const bool updateStartPos = (readPos == m_iStartPos);  // Indicates if the m_iStartPos can be changed
+    int32_t msgno = 0;
+    int32_t boundary = 0;
     for (int i = readPos;; i = incPos(i))
     {
         SRT_ASSERT(m_entries[i].pUnit);
@@ -418,36 +420,42 @@ int CRcvBuffer::readMessage(char* data, size_t len, SRT_MSGCTRL* msgctrl)
             break;
         }
 
-        const CPacket& packet  = packetAt(i);
-        const size_t   pktsize = packet.getLength();
+        const CPacket& packet = packetAt(i);
+        const size_t pktsize = packet.getLength();
+        if (pktsize > remain)
+        {
+            break;
+        }
+        if (pkts_read == 0)
+        {
+            msgno = packet.getMsgSeq(m_bPeerRexmitFlag);
+        }
+        else if (msgno != packet.getMsgSeq(m_bPeerRexmitFlag))
+        {
+            break;
+        }
         const int32_t pktseqno = packet.getSeqNo();
 
-        // unitsize can be zero
-        const size_t unitsize = std::min(remain, pktsize);
-        memcpy(dst, packet.m_pcData, unitsize);
-        remain -= unitsize;
-        dst += unitsize;
+        memcpy(dst, packet.m_pcData, pktsize);
+        remain -= pktsize;
+        dst += pktsize;
 
         ++pkts_read;
-        bytes_extracted += (int) pktsize;
+        bytes_extracted += (int)pktsize;
 
-        if (m_tsbpd.isEnabled())
+        if (pkts_read == 1 && m_tsbpd.isEnabled())
             updateTsbPdTimeBase(packet.getMsgTimeStamp());
 
         if (m_numOutOfOrderPackets && !packet.getMsgOrderFlag())
             --m_numOutOfOrderPackets;
 
-        const bool pbLast  = packet.getMsgBoundary() & PB_LAST;
-        if (msgctrl && (packet.getMsgBoundary() & PB_FIRST))
+        boundary |= packet.getMsgBoundary();
+        if (msgctrl && pkts_read == 1)
         {
-            msgctrl->msgno  = packet.getMsgSeq(m_bPeerRexmitFlag);
-        }
-        if (msgctrl && pbLast)
-        {
+            msgctrl->msgno = msgno;
             msgctrl->srctime = count_microseconds(getPktTsbPdTime(packet.getMsgTimeStamp()).time_since_epoch());
-        }
-        if (msgctrl)
             msgctrl->pktseq = pktseqno;
+        }
 
         releaseUnitInPos(i);
         if (updateStartPos)
@@ -463,7 +471,7 @@ int CRcvBuffer::readMessage(char* data, size_t len, SRT_MSGCTRL* msgctrl)
             m_entries[i].status = EntryState_Read;
         }
 
-        if (pbLast)
+        if (boundary & PB_LAST)
         {
             if (readPos == m_iFirstReadableOutOfOrder)
                 m_iFirstReadableOutOfOrder = -1;
@@ -494,6 +502,10 @@ int CRcvBuffer::readMessage(char* data, size_t len, SRT_MSGCTRL* msgctrl)
 
     IF_RCVBUF_DEBUG(scoped_log.ss << " pldi64 " << *reinterpret_cast<uint64_t*>(data));
 
+    if (msgctrl)
+    {
+        msgctrl->boundary = boundary;
+    }
     return bytes_read;
 }
 

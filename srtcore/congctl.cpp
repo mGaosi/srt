@@ -111,16 +111,7 @@ public:
             return false;
         }
 
-        if (dir == SrtCongestion::STAD_SEND)
-        {
-            // For sending, check if the size of data doesn't exceed the maximum live packet size.
-            if (size > m_zMaxPayloadSize)
-            {
-                LOGC(cclog.Error, log << "LiveCC: payload size: " << size << " exceeds maximum allowed " << m_zMaxPayloadSize);
-                return false;
-            }
-        }
-        else
+        if (dir == SrtCongestion::STAD_RECV)
         {
             // For receiving, check if the buffer has enough space to keep the payload.
             if (size < m_zMaxPayloadSize)

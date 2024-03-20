@@ -6713,14 +6713,6 @@ int srt::CUDT::sendmsg2(const char *data, int len, SRT_MSGCTRL& w_mctrl)
     // Otherwise it is allowed to send less bytes.
     const int iNumPktsRequired = m_config.bMessageAPI ? m_pSndBuffer->countNumPacketsRequired(len) : 1;
 
-    if (m_bTsbPd && iNumPktsRequired > 1)
-    {
-        LOGC(aslog.Error,
-            log << CONID() << "Message length (" << len << ") can't fit into a single data packet ("
-                << m_pSndBuffer->getMaxPacketLen() << " bytes max).");
-        throw CUDTException(MJ_NOTSUP, MN_XSIZE, 0);
-    }
-
     if (sndBuffersLeft() < iNumPktsRequired)
     {
         //>>We should not get here if SRT_ENABLE_TLPKTDROP
