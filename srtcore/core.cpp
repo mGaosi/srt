@@ -5446,38 +5446,49 @@ void * srt::CUDT::tsbpd(void* param)
         }
         else if (is_time_to_deliver)
         {
-            rxready = true;
             if (info.seq_gap)
             {
-                const int iDropCnt SRT_ATR_UNUSED = self->rcvDropTooLateUpTo(info.seqno);
+                constexpr int32_t kAdaptiveDelay = SRT_LIVE_DEF_LATENCY_MS;
+                if (self->m_config.iRcvLatency >= kAdaptiveDelay)
+                {
+                    rxready = true;
+                }
+                else
+                {
+                    auto latency = count_milliseconds(tnow - info.tsbpd_time) + self->m_config.iRcvLatency;
+                    if (latency >= kAdaptiveDelay)
+                    {
+                        rxready = true;
+                    }
+                    else
+                    {
+                        tsNextDelivery = tnow + milliseconds_from(kAdaptiveDelay - latency);
+                    }
+                }
+                if (rxready)
+                {
+                    const int iDropCnt SRT_ATR_UNUSED = self->rcvDropTooLateUpTo(info.seqno);
 #if ENABLE_BONDING
-                shall_update_group = true;
+                    shall_update_group = true;
 #endif
 
 #if ENABLE_LOGGING
-                const int64_t timediff_us = count_microseconds(tnow - info.tsbpd_time);
+                    const int64_t timediff_us = count_microseconds(tnow - info.tsbpd_time);
 #if ENABLE_HEAVY_LOGGING
-                HLOGC(tslog.Debug,
-                    log << self->CONID() << "tsbpd: DROPSEQ: up to seqno %" << CSeqNo::decseq(info.seqno) << " ("
-                    << iDropCnt << " packets) playable at " << FormatTime(info.tsbpd_time) << " delayed "
-                    << (timediff_us / 1000) << "." << std::setw(3) << std::setfill('0') << (timediff_us % 1000) << " ms");
+                    HLOGC(tslog.Debug, log << self->CONID() << "tsbpd: DROPSEQ: up to seqno %" << CSeqNo::decseq(info.seqno) << " (" << iDropCnt
+                        << " packets) playable at " << FormatTime(info.tsbpd_time) << " delayed " << (timediff_us / 1000) << "."
+                        << std::setw(3) << std::setfill('0') << (timediff_us % 1000) << " ms");
 #endif
-                string why;
-                if (self->frequentLogAllowed(FREQLOGFA_RCV_DROPPED, tnow, (why)))
-                {
-                    LOGC(brlog.Warn, log << self->CONID() << "RCV-DROPPED " << iDropCnt << " packet(s). Packet seqno %" << info.seqno
-                            << " delayed for " << (timediff_us / 1000) << "." << std::setw(3) << std::setfill('0')
-                            << (timediff_us % 1000) << " ms " << why);
-                }
-#if SRT_ENABLE_FREQUENT_LOG_TRACE
-                else
-                {
-                    LOGC(brlog.Warn, log << "SUPPRESSED: RCV-DROPPED LOG: " << why);
-                }
-#endif
+                    LOGC(brlog.Warn, log << self->CONID() << "RCV-DROPPED " << iDropCnt << " packet(s). Packet seqno %" << info.seqno << " delayed for "
+                        << (timediff_us / 1000) << "." << std::setw(3) << std::setfill('0') << (timediff_us % 1000) << " ms");
 #endif
 
-                tsNextDelivery = steady_clock::time_point(); // Ready to read, nothing to wait for.
+                    tsNextDelivery = steady_clock::time_point();  // Ready to read, nothing to wait for.
+                }
+            }
+            else
+            {
+                rxready = true;
             }
         }
         leaveCS(self->m_RcvBufferLock);
