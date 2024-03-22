@@ -644,6 +644,11 @@ CSndBuffer::duration CSndBuffer::getBufferingDelay(const time_point& tnow) const
     return tnow - m_pFirstBlock->m_tsOriginTime;
 }
 
+bool CSndBuffer::isMoreHalf() const
+{
+    return (m_iSize - m_iCount) >= (m_iSize >> 1);
+}
+
 int CSndBuffer::dropLateData(int& w_bytes, int32_t& w_first_msgno, const steady_clock::time_point& too_late_time)
 {
     int     dpkts  = 0;

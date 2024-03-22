@@ -202,6 +202,8 @@ public:
     SRT_ATTR_EXCLUDES(m_BufLock)
     duration getBufferingDelay(const time_point& tnow) const;
 
+    bool isMoreHalf() const;
+
     uint64_t getInRatePeriod() const { return m_rateEstimator.getInRatePeriod(); }
 
     /// Retrieve input bitrate in bytes per second
