@@ -7897,7 +7897,7 @@ void srt::CUDT::sendCtrl(UDTMessageType pkttype, const int32_t* lparam, void* rp
     }
 
     case UMSG_ACKACK: // 110 - Acknowledgement of Acknowledgement
-        ctrlpkt.pack(pkttype, lparam);
+        ctrlpkt.pack(pkttype, lparam, rparam, size);
         ctrlpkt.set_id(m_PeerID);
         nbsent        = m_pSndQueue->sendto(m_PeerAddr, ctrlpkt, m_SourceAddr);
 
@@ -8448,7 +8448,10 @@ void srt::CUDT::processCtrlAck(const CPacket &ctrlpkt, const steady_clock::time_
         // already acknowledged (with ACKACK) has come again, which probably means ACKACK was lost.
         if ((currtime - m_SndLastAck2Time > microseconds_from(COMM_SYN_INTERVAL_US)) || (ack_seqno == m_iSndLastAck2))
         {
-            sendCtrl(UMSG_ACKACK, &ack_seqno);
+            int32_t param[2] = {0};
+            param[1] = m_iSndCurrSeqNo;
+            int32_t cur_seqno = m_iSndCurrSeqNo;
+            sendCtrl(UMSG_ACKACK, &ack_seqno, param, (int)sizeof(param));
             m_iSndLastAck2       = ack_seqno;
             m_SndLastAck2Time = currtime;
         }
@@ -8740,7 +8743,22 @@ void srt::CUDT::processCtrlAckAck(const CPacket& ctrlpkt, const time_point& tsAr
 
     // Update last ACK that has been received by the sender
     if (CSeqNo::seqcmp(ack, m_iRcvLastAckAck) > 0)
+    {
         m_iRcvLastAckAck = ack;
+        if (ctrlpkt.getLength() >= 8)
+        {
+            const int32_t* param = (int32_t*)(ctrlpkt.m_pcData);
+            const int32_t last_snd = param[1];
+            const int32_t last_rcv = m_iRcvCurrSeqNo;
+            if (CSeqNo::seqcmp(last_snd, last_rcv) > 0)
+            {
+                m_iRcvCurrSeqNo = last_snd;
+                HLOGC(inlog.Debug, log << CONID() << "Dectect loss by ACKACK " << CSeqNo::incseq(last_rcv) << "-" << last_snd);
+                ScopedLock lock(m_RcvLossLock);
+                m_pRcvLossList->insert(CSeqNo::incseq(last_rcv), last_snd);
+            }
+        }
+    }
 }
 
 void srt::CUDT::processCtrlLossReport(const CPacket& ctrlpkt)

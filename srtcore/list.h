@@ -76,7 +76,7 @@ public:
     /// @param [in] seqno sequence number.
     void removeUpTo(int32_t seqno);
 
-    /// Read the loss length.∏
+    /// Read the loss length.
     /// @return The length of the list.
     int getLossLength() const;
 

@@ -349,7 +349,7 @@ void CPacket::pack(UDTMessageType pkttype, const int32_t* lparam, void* rparam, 
 
         // control info field should be none
         // but "writev" does not allow this
-        m_PacketVector[PV_DATA].set((void*)&m_extra_pad, 4);
+        m_PacketVector[PV_DATA].set(rparam, size);
 
         break;
 
