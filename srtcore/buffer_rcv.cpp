@@ -430,7 +430,7 @@ int CRcvBuffer::readMessage(char* data, size_t len, SRT_MSGCTRL* msgctrl)
         {
             msgno = packet.getMsgSeq(m_bPeerRexmitFlag);
         }
-        else if (msgno != packet.getMsgSeq(m_bPeerRexmitFlag))
+        else if (msgno != packet.getMsgSeq(m_bPeerRexmitFlag) || pkts_read >= UINT16_MAX)
         {
             break;
         }
@@ -504,7 +504,8 @@ int CRcvBuffer::readMessage(char* data, size_t len, SRT_MSGCTRL* msgctrl)
 
     if (msgctrl)
     {
-        msgctrl->boundary = boundary;
+        msgctrl->boundary = pkts_read << 16;
+        msgctrl->boundary |= boundary;
     }
     return bytes_read;
 }
