@@ -410,6 +410,11 @@ void CPacket::pack(UDTMessageType pkttype, const int32_t* lparam, void* rparam, 
 
         break;
 
+    case UMSG_SYNC:
+        m_nHeader[SRT_PH_MSGNO] = *lparam;
+        m_PacketVector[PV_DATA].set(rparam, size);
+        break;
+
     case UMSG_EXT: // 0x7FFF - Reserved for user defined control packets
         // for extended control packet
         // "lparam" contains the extended type information for bit 16 - 31

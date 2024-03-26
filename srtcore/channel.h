@@ -60,6 +60,7 @@ modified by
 
 namespace srt
 {
+class Multicast;
 
 class CChannel
 {
@@ -77,6 +78,7 @@ public:
 
     /// Open a UDP channel.
     /// @param [in] addr The local address that UDP will use.
+    /// @param [in] reuse 
 
     void open(const sockaddr_any& addr);
 
@@ -86,6 +88,10 @@ public:
     /// @param [in] udpsock UDP socket descriptor.
 
     void attach(UDPSOCKET udpsock, const sockaddr_any& adr);
+
+    /// join multi-cast group
+    /// @param [in] multicast The multi-cast address.
+    int join(const sockaddr_any& multicast);
 
     /// Disconnect and close the UDP entity.
 
@@ -285,6 +291,7 @@ private:
 
 #endif //SRT_ENABLE_PKTINFO
 
+    Multicast* m_pMulticast;
 };
 
 } // namespace srt

@@ -368,6 +368,15 @@ struct sockaddr_any
         }
     };
 
+    bool isv4() const
+    {
+        return sa.sa_family == AF_INET;
+    }
+    bool isv6() const
+    {
+        return sa.sa_family == AF_INET6;
+    }
+
     // Tests if the current address is the "any" wildcard.
     bool isany() const
     {
@@ -377,6 +386,32 @@ struct sockaddr_any
         if (sa.sa_family == AF_INET6)
             return memcmp(&sin6.sin6_addr, &in6addr_any, sizeof in6addr_any) == 0;
 
+        return false;
+    }
+
+    bool isloopback() const
+    {
+        if (sa.sa_family == AF_INET)
+        {
+            return ((int8_t(&)[4])sin.sin_addr.s_addr)[0] == 0x7F;
+        }
+        if (sa.sa_family == AF_INET6)
+        {
+            return memcmp(&sin6.sin6_addr, &in6addr_loopback, sizeof(in6addr_loopback)) == 0;
+        }
+        return false;
+    }
+
+    bool ismulticast() const
+    {
+        if (sa.sa_family == AF_INET)
+        {
+            return (((int8_t(&)[4])sin.sin_addr.s_addr)[0] & 0xE0) == 0xE0;
+        }
+        if (sa.sa_family == AF_INET6)
+        {
+            return sin6.sin6_addr.s6_addr[0] == 0xFF;
+        }
         return false;
     }
 

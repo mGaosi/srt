@@ -234,6 +234,8 @@ typedef enum SRT_SOCKOPT {
    SRTO_MAXREXMITBW = 63,    // Maximum bandwidth limit for retransmision (Bytes/s)
 #endif
 
+   SRTO_MULTICASTID = 256,   // Designative Peer ID for multicast.
+
    SRTO_E_SIZE // Always last element, not a valid option.
 } SRT_SOCKOPT;
 

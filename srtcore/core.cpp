@@ -275,6 +275,7 @@ void srt::CUDT::construct()
     m_pRcvQueue = NULL;
     m_pSNode    = NULL;
     m_pRNode    = NULL;
+    m_isMulticast = false;
 
     // Will be reset to 0 for HSv5, this value is important for HSv4.
     m_iSndHsRetryCnt = SRT_MAX_HSRETRY + 1;
@@ -316,6 +317,7 @@ srt::CUDT::CUDT(CUDTSocket* parent)
     , m_SndRexmitRate(sync::steady_clock::now())
 #endif
     , m_iISN(-1)
+    , m_iRcvCurrPhySeqNo(-1)
     , m_iPeerISN(-1)
 {
     construct();
@@ -345,6 +347,7 @@ srt::CUDT::CUDT(CUDTSocket* parent, const CUDT& ancestor)
     , m_SndRexmitRate(sync::steady_clock::now())
 #endif
     , m_iISN(-1)
+    , m_iRcvCurrPhySeqNo(-1)
     , m_iPeerISN(-1)
 {
     construct();
@@ -853,6 +856,11 @@ void srt::CUDT::getOpt(SRT_SOCKOPT optName, void *optval, int &optlen)
         break;
 #endif
 
+    case SRTO_MULTICASTID:
+        *(int32_t*)optval = m_config.iMulticastID;
+        optlen = sizeof(int32_t);
+        break;
+
     default:
         throw CUDTException(MJ_NOTSUP, MN_NONE, 0);
     }
@@ -984,11 +992,13 @@ void srt::CUDT::open()
 
     m_tdACKInterval = microseconds_from(COMM_SYN_INTERVAL_US);
     m_tdNAKInterval = m_tdMinNakInterval;
+    m_tdSYNInterval = milliseconds_from(500);
 
     const steady_clock::time_point currtime = steady_clock::now();
     m_tsLastRspTime.store(currtime);
     m_tsNextACKTime.store(currtime + m_tdACKInterval);
     m_tsNextNAKTime.store(currtime + m_tdNAKInterval);
+    m_tsNextSYNTime.store(currtime);
     m_tsLastRspAckTime = currtime;
     m_tsLastSndTime.store(currtime);
 
@@ -3567,8 +3577,18 @@ void srt::CUDT::startConnect(const sockaddr_any& serv_addr, int32_t forced_isn)
     }
 
     m_iISN = m_ConnReq.m_iISN = forced_isn;
-
     setInitialSndSeq(m_iISN);
+
+    // multicast
+    if (serv_addr.ismulticast())
+    {
+        if (!setupMulticast())
+        {
+            throw CUDTException(MJ_NOTSUP, MN_INVAL, 0);
+        }
+        return;
+    }
+
     // Inform the server my configurations.
     CPacket reqpkt;
     reqpkt.setControl(UMSG_HANDSHAKE);
@@ -4973,6 +4993,67 @@ EConnectStatus srt::CUDT::postConnect(const CPacket* pResponse, bool rendezvous,
         << m_SourceAddr.str() << ") to peer @" << m_PeerID << " (" << m_PeerAddr.str() << ")");
 
     return CONN_ACCEPT;
+}
+
+bool srt::CUDT::setupMulticast() ATR_NOEXCEPT
+{
+    if (!m_config.bMessageAPI)
+    {
+        LOGC(aslog.Error, log << CONID() << "Multicast only belong to message mode.");
+        return false;
+    }
+    if (!m_bTLPktDrop)
+    {
+        LOGC(aslog.Error, log << CONID() << "Multicast must be enable tsbpd.");
+        return false;
+    }
+    if (m_config.bDataSender)
+    {
+        if (m_config.iSndDropDelay < 1 || m_config.iSndDropDelay > 120)
+        {
+            LOGC(aslog.Error, log << CONID() << "Multicast require 1 to 120 of SndDropDelay.");
+            return false;
+        }
+        m_PeerID = -m_SocketID;
+        m_config.iMulticastID = m_PeerID;
+    }
+    else
+    {
+        if (m_config.iMulticastID >= -1)
+        {
+            LOGC(aslog.Error, log << CONID() << "Multicast require designative PeerID.");
+            return false;
+        }
+        m_PeerID = -m_config.iMulticastID;
+    }
+    m_bPeerTLPktDrop = true;
+    m_iFlowWindowSize = m_config.flightCapacity();
+    m_iSRTT = 1000;
+    m_iPeerISN = 0;
+    if (!prepareBuffers(nullptr))
+    {
+        LOGC(aslog.Error, log << CONID() << "Multicast setup buffer fail.");
+        return false;
+    }
+    if (setupCC() != SRT_REJ_UNKNOWN)
+    {
+        LOGC(aslog.Error, log << CONID() << "Multicast setup CC fail.");
+        return false;
+    }
+    if (!createCrypter(HSD_INITIATOR, false))
+    {
+        LOGC(aslog.Error, log << CONID() << "Multicast setup crypter fail.");
+        return false;
+    }
+    m_tdACKInterval = microseconds_from(0);
+    m_bPeerNakReport = true;
+    m_bPeerRexmitFlag = true;
+    m_bPeerTsbPd = true;
+    m_bConnected = true;
+    m_pRNode->m_bOnList = true;
+    m_pRcvQueue->setNewEntry(this);
+    m_isMulticast = true;
+    return true;
 }
 
 void srt::CUDT::checkUpdateCryptoKeyLen(const char *loghdr SRT_ATR_UNUSED, int32_t typefield)
@@ -7886,6 +7967,24 @@ static inline void DebugAck(string, int, int) {}
 
 void srt::CUDT::sendCtrl(UDTMessageType pkttype, const int32_t* lparam, void* rparam, int size)
 {
+    if (m_isMulticast)
+    {
+        if (m_config.bDataSender)
+        {
+            if (pkttype != UMSG_SYNC && pkttype != UMSG_SHUTDOWN)
+            {
+                return;
+            }
+        }
+        else
+        {
+            if (pkttype != UMSG_LOSSREPORT)
+            {
+                return;
+            }
+        }
+    }
+
     CPacket ctrlpkt;
     setPacketTS(ctrlpkt, steady_clock::now());
 
@@ -8009,6 +8108,17 @@ void srt::CUDT::sendCtrl(UDTMessageType pkttype, const int32_t* lparam, void* rp
         ctrlpkt.set_id(m_PeerID);
         nbsent        = m_pSndQueue->sendto(m_PeerAddr, ctrlpkt, m_SourceAddr);
 
+        break;
+
+    case UMSG_SYNC:
+    {
+        int32_t param[2];
+        param[0] = m_iSndCurrSeqNo;
+        param[1] = m_iTsbPdDelay_ms;
+        ctrlpkt.pack(pkttype, lparam, param, (int)sizeof(param));
+        ctrlpkt.set_id(m_PeerID);
+        nbsent = m_pSndQueue->sendto(m_PeerAddr, ctrlpkt, m_SourceAddr);
+    }
         break;
 
     case UMSG_EXT: // 0x7FFF - Resevered for future use
@@ -9115,6 +9225,32 @@ void srt::CUDT::processCtrlShutdown()
     completeBrokenConnectionDependencies(SRT_ECONNLOST); // LOCKS!
 }
 
+void srt::CUDT::processCtrlMulticastSync(const CPacket& ctrlpkt, const sockaddr_any& src, const time_point& tsArrival)
+{
+    if (m_iRcvCurrPhySeqNo < 0)
+    {
+        const int32_t* sync = (const int32_t*)ctrlpkt.m_pcData;
+        if (ctrlpkt.getLength() < sizeof(int32_t) * 2)
+        {
+            LOGC(inlog.Warn, log << CONID() << "Received UMSG_SYNC payload is not evened up to 4-byte based field size," << ctrlpkt.getLength() << " bytes");
+            return;
+        }
+        m_tsRcvPeerStartTime = tsArrival - microseconds_from(ctrlpkt.getMsgTimeStamp());
+        m_iPeerISN = sync[0];
+        m_iRcvCurrPhySeqNo = CSeqNo::decseq(m_iPeerISN);
+        m_bBufferWasFull = false;
+        setInitialRcvSeq(m_iPeerISN);
+        m_bTsbPd = true;
+        m_iTsbPdDelay_ms = sync[1];
+        m_PeerAddr = src;
+        updateSrtRcvSettings();
+    }
+    else
+    {
+        m_pRcvBuffer->addRcvTsbPdDriftSample(ctrlpkt.getMsgTimeStamp(), tsArrival, 0);
+    }
+}
+
 void srt::CUDT::processCtrlUserDefined(const CPacket& ctrlpkt)
 {
     HLOGC(inlog.Debug, log << CONID() << "CONTROL EXT MSG RECEIVED:"
@@ -9145,7 +9281,7 @@ void srt::CUDT::processCtrlUserDefined(const CPacket& ctrlpkt)
     }
 }
 
-void srt::CUDT::processCtrl(const CPacket &ctrlpkt)
+void srt::CUDT::processCtrl(const CPacket &ctrlpkt, const sockaddr_any& src)
 {
     // Just heard from the peer, reset the expiration count.
     m_iEXPCount = 1;
@@ -9204,6 +9340,10 @@ void srt::CUDT::processCtrl(const CPacket &ctrlpkt)
         // giving the app a chance to fix the issue
         m_bPeerHealth = false;
 
+        break;
+
+    case UMSG_SYNC:
+        processCtrlMulticastSync(ctrlpkt, src, currtime);
         break;
 
     case UMSG_EXT: // 0x7FFF - reserved and user defined messages
@@ -9660,6 +9800,15 @@ bool srt::CUDT::packData(CPacket& w_packet, steady_clock::time_point& w_nexttime
             m_tsNextSendTime = steady_clock::time_point();
             m_tdSendTimeDiff = steady_clock::duration();
             return false;
+        }
+        if (m_isMulticast && m_config.bDataSender)
+        {
+            if (m_tsNextSYNTime.load() <= enter_time)
+            {
+                const int flags = 0;
+                sendCtrl(UMSG_SYNC, &flags, 0);
+                m_tsNextSYNTime.store(enter_time + m_tdSYNInterval);
+            }
         }
         new_packet_packed = true;
 
@@ -10295,6 +10444,9 @@ int srt::CUDT::handleSocketPacketReception(const vector<CUnit*>& incoming, bool&
 int srt::CUDT::processData(CUnit* in_unit)
 {
     if (m_bClosing)
+        return -1;
+
+    if (m_isMulticast && m_iRcvCurrPhySeqNo < 0)
         return -1;
 
     CPacket &packet = in_unit->m_Packet;
@@ -11359,6 +11511,8 @@ void srt::CUDT::addLossRecord(std::vector<int32_t> &lr, int32_t lo, int32_t hi)
 int srt::CUDT::checkACKTimer(const steady_clock::time_point &currtime)
 {
     int because_decision = BECAUSE_NO_REASON;
+    if (m_isMulticast)
+        return because_decision;
     if (currtime > m_tsNextACKTime.load()  // ACK time has come
                                   // OR the number of sent packets since last ACK has reached
                                   // the congctl-defined value of ACK Interval
@@ -11463,6 +11617,9 @@ bool srt::CUDT::checkExpTimer(const steady_clock::time_point& currtime, int chec
     HLOGC(xtlog.Debug, log << CONID() << "checkTimer: ACTIVITIES PERFORMED: " << decision);
 #endif
 
+    if (m_isMulticast && m_config.bDataSender)
+        return false;
+
     // In UDT the m_bUserDefinedRTO and m_iRTO were in CCC class.
     // There's nothing in the original code that alters these values.
 
@@ -11535,6 +11692,9 @@ bool srt::CUDT::checkExpTimer(const steady_clock::time_point& currtime, int chec
 
 void srt::CUDT::checkRexmitTimer(const steady_clock::time_point& currtime)
 {
+    if (m_isMulticast)
+        return;
+
     // Check if HSv4 should be retransmitted, and if KM_REQ should be resent if the side is INITIATOR.
     checkSndTimers();
 
@@ -11638,7 +11798,7 @@ void srt::CUDT::checkTimers()
     // Check if FAST or LATE packet retransmission is required
     checkRexmitTimer(currtime);
 
-    if (currtime > m_tsLastSndTime.load() + microseconds_from(COMM_KEEPALIVE_PERIOD_US))
+    if (!m_isMulticast && currtime > m_tsLastSndTime.load() + microseconds_from(COMM_KEEPALIVE_PERIOD_US))
     {
         sendCtrl(UMSG_KEEPALIVE);
 #if ENABLE_BONDING

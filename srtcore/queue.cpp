@@ -1225,16 +1225,6 @@ void* srt::CRcvQueue::worker(void* param)
         INCREMENT_THREAD_ITERATIONS();
         if (rst == RST_OK)
         {
-            if (id < 0)
-            {
-                // User error on peer. May log something, but generally can only ignore it.
-                // XXX Think maybe about sending some "connection rejection response".
-                HLOGC(qrlog.Debug,
-                      log << self->CONID() << "RECEIVED negative socket id '" << id
-                          << "', rejecting (POSSIBLE ATTACK)");
-                continue;
-            }
-
             // NOTE: cst state is being changed here.
             // This state should be maintained through any next failed calls to worker_RetrieveUnit.
             // Any error switches this to rejection, just for a case.
@@ -1310,6 +1300,7 @@ void* srt::CRcvQueue::worker(void* param)
                 // the socket must be removed from Hash table first, then RcvUList
                 self->m_pHash->remove(u->m_SocketID);
                 self->m_pRcvUList->remove(u);
+                self->m_mRedirect.erase(u->m_config.iMulticastID);
                 u->m_pRNode->m_bOnList = false;
             }
 
@@ -1353,6 +1344,18 @@ srt::EReadStatus srt::CRcvQueue::worker_RetrieveUnit(int32_t& w_id, CUnit*& w_un
                       << " SOCKET pending for connection - ADDING TO RCV QUEUE/MAP");
             m_pRcvUList->insert(ne);
             m_pHash->insert(ne->m_SocketID, ne);
+            if (ne->m_isMulticast)
+            {
+                auto it = m_mRedirect.find(ne->m_config.iMulticastID);
+                if (it == m_mRedirect.end())
+                {
+                    m_mRedirect[ne->m_config.iMulticastID] = ne->m_SocketID;
+                }
+                else
+                {
+                    LOGC(qrlog.Warn, log << CUDTUnited::CONID(ne->m_SocketID) << "Multicast id collision occurred!");
+                }
+            }
         }
     }
     // find next available slot for incoming packet
@@ -1435,7 +1438,23 @@ srt::EConnectStatus srt::CRcvQueue::worker_ProcessConnectionRequest(CUnit* unit,
 
 srt::EConnectStatus srt::CRcvQueue::worker_ProcessAddressedPacket(int32_t id, CUnit* unit, const sockaddr_any& addr)
 {
-    CUDT* u = m_pHash->lookup(id);
+    CUDT* u = nullptr;
+    if (id < 0)
+    {
+        auto it = m_mRedirect.find(id);
+        if (it == m_mRedirect.end())
+        {
+            return CONN_REJECT;
+        }
+        else
+        {
+            u = m_pHash->lookup(it->second);
+        }
+    }
+    else
+    {
+        u = m_pHash->lookup(id);
+    }
     if (!u)
     {
         // Pass this to either async rendezvous connection,
@@ -1446,7 +1465,7 @@ srt::EConnectStatus srt::CRcvQueue::worker_ProcessAddressedPacket(int32_t id, CU
 
     // Found associated CUDT - process this as control or data packet
     // addressed to an associated socket.
-    if (addr != u->m_PeerAddr)
+    if (addr != u->m_PeerAddr && !u->m_isMulticast)
     {
         HLOGC(cnlog.Debug,
               log << CONID() << "Packet for SID=" << id << " asoc with " << u->m_PeerAddr.str() << " received from "
@@ -1467,7 +1486,7 @@ srt::EConnectStatus srt::CRcvQueue::worker_ProcessAddressedPacket(int32_t id, CU
     }
 
     if (unit->m_Packet.isControl())
-        u->processCtrl(unit->m_Packet);
+        u->processCtrl(unit->m_Packet, addr);
     else
         u->processData(unit);
 

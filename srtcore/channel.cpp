@@ -136,11 +136,111 @@ static int set_cloexec(int fd, int set)
 #endif // if ENABLE_CLOEXEC
 } // namespace srt
 
+/* Define IPV6_ADD_MEMBERSHIP for FreeBSD and Mac OS X */
+#ifndef IPV6_ADD_MEMBERSHIP
+#define IPV6_ADD_MEMBERSHIP IPV6_JOIN_GROUP
+#endif  // IPV6_ADD_MEMBERSHIP
+#ifndef IPV6_DROP_MEMBERSHIP
+#define IPV6_DROP_MEMBERSHIP IPV6_LEAVE_GROUP
+#endif
+
+//////////////////////////////////////////////////////////////////////////
+namespace srt
+{
+class Multicast final
+{
+public:
+    Multicast() = delete;
+    Multicast(const Multicast&) = delete;
+    Multicast(Multicast&&) = delete;
+    Multicast(UDPSOCKET sock, const sockaddr_any& bind);
+    ~Multicast();
+
+    Multicast& operator=(const Multicast&) = delete;
+    Multicast& operator=(Multicast&&) = delete;
+
+public:
+    int join(const sockaddr_any& addr);
+    void leave();
+
+private:
+    UDPSOCKET m_udpsock;
+    sockaddr_any m_bind;
+    sockaddr_any m_group;
+};
+}
+
+srt::Multicast::Multicast(UDPSOCKET sock, const sockaddr_any& bind)
+    : m_udpsock(sock)
+    , m_bind(bind)
+{
+}
+
+srt::Multicast::~Multicast()
+{
+    leave();
+}
+
+int srt::Multicast::join(const sockaddr_any& addr)
+{
+    if (addr.ismulticast())
+    {
+        int set = -1;
+        if (addr.isv4())
+        {
+            const ip_mreq mreq = { addr.sin.sin_addr, m_bind.sin.sin_addr };
+            set = ::setsockopt(m_udpsock, IPPROTO_IP, IP_ADD_MEMBERSHIP, reinterpret_cast<const char*>(&mreq), sizeof(mreq));
+        }
+        else if (addr.isv6())
+        {
+            const ipv6_mreq mreq = { addr.sin6.sin6_addr, 0 };
+            set = ::setsockopt(m_udpsock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, reinterpret_cast<const char*>(&mreq), sizeof(mreq));
+        }
+        if (set == 0)
+        {
+            m_group = addr;
+        }
+        else
+        {
+            int err = NET_ERROR;
+            LOGC(kmlog.Error, log << "::setsockopt: failed to set ADD_MEMBERSHIP, err=" << err << ", " << SysStrError(err));
+        }
+        return set;
+    }
+    return -1;
+}
+
+void srt::Multicast::leave()
+{
+    if (m_group.ismulticast())
+    {
+        int set = 0;
+        if (m_group.isv4())
+        {
+            const ip_mreq mreq = { m_group.sin.sin_addr, m_bind.sin.sin_addr };
+            set = setsockopt(m_udpsock, IPPROTO_IP, IP_DROP_MEMBERSHIP, reinterpret_cast<const char*>(&mreq), sizeof(mreq));
+        }
+        else if (m_group.isv6())
+        {
+            const ipv6_mreq mreq = { m_group.sin6.sin6_addr, 0 };
+            set = ::setsockopt(m_udpsock, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP, reinterpret_cast<const char*>(&mreq), sizeof(mreq));
+        }
+        if (set != 0)
+        {
+            int err = NET_ERROR;
+            LOGC(kmlog.Error, log << "::setsockopt: failed to set DROP_MEMBERSHIP, err=" << err << ", " << SysStrError(err));
+        }
+        m_group.reset();
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
 srt::CChannel::CChannel()
     : m_iSocket(INVALID_SOCKET)
 #ifdef SRT_ENABLE_PKTINFO
     , m_bBindMasked(true)
 #endif
+    , m_pMulticast(nullptr)
 {
 #ifdef SRT_ENABLE_PKTINFO
    // Do the check for ancillary data buffer size, kinda assertion
@@ -157,7 +257,14 @@ srt::CChannel::CChannel()
 #endif
 }
 
-srt::CChannel::~CChannel() {}
+srt::CChannel::~CChannel()
+{
+    if (m_pMulticast)
+    {
+        delete m_pMulticast;
+        m_pMulticast = nullptr;
+    }
+}
 
 void srt::CChannel::createSocket(int family)
 {
@@ -220,6 +327,13 @@ void srt::CChannel::open(const sockaddr_any& addr)
     createSocket(addr.family());
     socklen_t namelen = addr.size();
 
+    const int reuse = 1;
+    if (setsockopt(m_iSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, (int)sizeof(reuse)) < 0)
+    {
+        int err = NET_ERROR;
+        LOGC(kmlog.Error, log << "::setsockopt: failed to enable SO_REUSEADDR, err=" << err << ", " << SysStrError(err));
+        throw CUDTException(MJ_SETUP, MN_NORES, err);
+    }
     if (::bind(m_iSocket, &addr.sa, namelen) == -1)
         throw CUDTException(MJ_SETUP, MN_NORES, NET_ERROR);
 
@@ -287,6 +401,16 @@ void srt::CChannel::attach(UDPSOCKET udpsock, const sockaddr_any& udpsocks_addr)
     m_iSocket  = udpsock;
     m_BindAddr = udpsocks_addr;
     setUDPSockOpt();
+}
+
+int srt::CChannel::join(const sockaddr_any& multicast)
+{
+    if (multicast.ismulticast() && m_pMulticast == nullptr)
+    {
+        m_pMulticast = new Multicast(m_iSocket, m_BindAddr);
+        return m_pMulticast->join(multicast);
+    }
+    return -1;
 }
 
 void srt::CChannel::setUDPSockOpt()
@@ -523,6 +647,10 @@ void srt::CChannel::setUDPSockOpt()
 
 void srt::CChannel::close() const
 {
+    if (m_pMulticast)
+    {
+        m_pMulticast->leave();
+    }
 #ifndef _WIN32
     ::close(m_iSocket);
 #else

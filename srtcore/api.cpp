@@ -1887,6 +1887,14 @@ int srt::CUDTUnited::connectIn(CUDTSocket* s, const sockaddr_any& target_addr, i
         // record peer address
         s->m_PeerAddr = target_addr;
         s->core().startConnect(target_addr, forced_isn);
+        if (target_addr.ismulticast())
+        {
+            s->m_Status = SRTS_CONNECTED;
+            if (!s->core().m_config.bDataSender)
+            {
+                updateMulticast(s, target_addr);
+            }
+        }
     }
     catch (const CUDTException&) // Interceptor, just to change the state.
     {
@@ -3288,6 +3296,25 @@ bool srt::CUDTUnited::updateListenerMux(CUDTSocket* s, const CUDTSocket* ls)
     }
 
     return false;
+}
+
+bool srt::CUDTUnited::updateMulticast(CUDTSocket* s, const sockaddr_any& addr)
+{
+    if (s == nullptr)
+    {
+        return false;
+    }
+    ScopedLock cg(m_GlobControlLock);
+    auto item = m_mMultiplexer.find(s->m_SocketID);
+    if (item == m_mMultiplexer.end())
+    {
+        return false;
+    }
+    if (item->second.m_pChannel == nullptr)
+    {
+        return false;
+    }
+    return item->second.m_pChannel->join(addr) == 0;
 }
 
 void* srt::CUDTUnited::garbageCollect(void* p)

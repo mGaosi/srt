@@ -529,6 +529,8 @@ private:
     SRT_ATR_NODISCARD SRT_ATTR_REQUIRES(m_ConnectionLock)
     EConnectStatus postConnect(const CPacket* response, bool rendezvous, CUDTException* eout) ATR_NOEXCEPT;
 
+    SRT_ATR_NODISCARD bool setupMulticast() ATR_NOEXCEPT;
+
     SRT_ATR_NODISCARD bool applyResponseSettings(const CPacket* hspkt /*[[nullable]]*/) ATR_NOEXCEPT;
     SRT_ATR_NODISCARD EConnectStatus processAsyncConnectResponse(const CPacket& pkt) ATR_NOEXCEPT;
     SRT_ATR_NODISCARD bool processAsyncConnectRequest(EReadStatus rst, EConnectStatus cst, const CPacket* response, const sockaddr_any& serv_addr);
@@ -873,9 +875,11 @@ private: // Sending related data
 private: // Timers
     atomic_time_point m_tsNextACKTime;           // Next ACK time, in CPU clock cycles, same below
     atomic_time_point m_tsNextNAKTime;           // Next NAK time
+    atomic_time_point m_tsNextSYNTime;           // Next SYNC for multicast time
 
     duration   m_tdACKInterval;                  // ACK interval
     duration   m_tdNAKInterval;                  // NAK interval
+    duration   m_tdSYNInterval;                  // SYNC interval
 
     SRT_ATTR_GUARDED_BY(m_RecvAckLock)
     atomic_time_point m_tsLastRspTime;           // Timestamp of last response from the peer
@@ -1071,7 +1075,7 @@ private: // Generation and processing of packets
     int  sendCtrlAck(CPacket& ctrlpkt, int size);
     void sendLossReport(const std::vector< std::pair<int32_t, int32_t> >& losslist);
 
-    void processCtrl(const CPacket& ctrlpkt);
+    void processCtrl(const CPacket& ctrlpkt, const sockaddr_any& src);
     
     /// @brief Process incoming control ACK packet.
     /// @param ctrlpkt incoming ACK packet
@@ -1097,6 +1101,12 @@ private: // Generation and processing of packets
 
     /// @brief Process incoming shutdown control packet
     void processCtrlShutdown();
+
+    /// @brief Process incoming SYNC control packet
+    /// @param ctrlpkt incoming SYNC packet
+    /// @param src packet source addr
+    void processCtrlMulticastSync(const CPacket& ctrlpkt, const sockaddr_any& src, const time_point& tsArrival);
+
     /// @brief Process incoming user defined control packet
     /// @param ctrlpkt incoming user defined packet
     void processCtrlUserDefined(const CPacket& ctrlpkt);
@@ -1224,6 +1234,7 @@ private: // for UDP multiplexer
     uint32_t m_piSelfIP[4];    // local UDP IP address
     CSNode* m_pSNode;          // node information for UDT list used in snd queue
     CRNode* m_pRNode;          // node information for UDT list used in rcv queue
+    bool m_isMulticast;        // is UDP multi-cast mode
 
 public: // For SrtCongestion
     const CSndQueue* sndQueue() { return m_pSndQueue; }

@@ -253,6 +253,7 @@ struct CSrtConfig: CSrtMuxerConfig
     uint32_t uMinStabilityTimeout_ms;
     int      iRetransmitAlgo;
     int      iCryptoMode; // SRTO_CRYPTOMODE
+    int32_t  iMulticastID;
 
     int64_t llInputBW;         // Input stream rate (bytes/sec). 0: use internally estimated input bandwidth
     int64_t llMinInputBW;      // Minimum input stream rate estimate (bytes/sec)
@@ -308,6 +309,7 @@ struct CSrtConfig: CSrtMuxerConfig
         , uMinStabilityTimeout_ms(COMM_DEF_MIN_STABILITY_TIMEOUT_MS)
         , iRetransmitAlgo(1)
         , iCryptoMode(CIPHER_MODE_AUTO)
+        , iMulticastID(-1)
         , llInputBW(0)
         , llMinInputBW(0)
         , iOverheadBW(25)

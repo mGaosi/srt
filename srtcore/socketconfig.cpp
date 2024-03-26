@@ -932,6 +932,15 @@ struct CSrtConfigSetter<SRTO_CRYPTOMODE>
 };
 #endif
 
+template<>
+struct CSrtConfigSetter<SRTO_MULTICASTID>
+{
+    static void set(CSrtConfig& co, const void* optval, int optlen)
+    {
+        co.iMulticastID = cast_optval<int32_t>(optval, optlen);
+    }
+};
+
 int dispatchSet(SRT_SOCKOPT optName, CSrtConfig& co, const void* optval, int optlen)
 {
     switch (optName)
@@ -995,6 +1004,8 @@ int dispatchSet(SRT_SOCKOPT optName, CSrtConfig& co, const void* optval, int opt
 #ifdef ENABLE_MAXREXMITBW
         DISPATCH(SRTO_MAXREXMITBW);
 #endif
+
+        DISPATCH(SRTO_MULTICASTID);
 
 #undef DISPATCH
     default:

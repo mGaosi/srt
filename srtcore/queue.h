@@ -529,6 +529,8 @@ private:
     CChannel*     m_pChannel;   // UDP channel for receiving packets
     sync::CTimer* m_pTimer;     // shared timer with the snd queue
 
+    std::map<int32_t, int32_t> m_mRedirect;
+
     int m_iIPversion;           // IP version
     size_t m_szPayloadSize;     // packet payload size
 
