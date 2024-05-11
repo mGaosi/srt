@@ -413,10 +413,8 @@ int CRcvBuffer::readMessage(char* data, size_t len, SRT_MSGCTRL* msgctrl)
     int32_t boundary = 0;
     for (int i = readPos;; i = incPos(i))
     {
-        SRT_ASSERT(m_entries[i].pUnit);
-        if (!m_entries[i].pUnit)
+        if (!m_entries[i].pUnit || m_entries[i].status != EntryState_Avail)
         {
-            LOGC(rbuflog.Error, log << "CRcvBuffer::readMessage(): null packet encountered.");
             break;
         }
 
@@ -828,39 +826,23 @@ void CRcvBuffer::releaseNextFillerEntries()
     }
 }
 
-// TODO: Is this function complete? There are some comments left inside.
 void CRcvBuffer::updateNonreadPos()
 {
     if (m_iMaxPosOff == 0)
         return;
 
     const int end_pos = incPos(m_iStartPos, m_iMaxPosOff); // The empty position right after the last valid entry.
-
-    int pos = m_iFirstNonreadPos;
-    while (m_entries[pos].pUnit && m_entries[pos].status == EntryState_Avail)
+    int i = m_iFirstNonreadPos;
+    for (; i != end_pos; i = incPos(i))
     {
-        if (m_bMessageAPI && (packetAt(pos).getMsgBoundary() & PB_FIRST) == 0)
-            break;
-
-        for (int i = pos; i != end_pos; i = incPos(i))
+        if (!m_entries[i].pUnit || m_entries[i].status != EntryState_Avail)
         {
-            if (!m_entries[i].pUnit || m_entries[pos].status != EntryState_Avail)
-            {
-                break;
-            }
-
-            // Check PB_LAST only in message mode.
-            if (!m_bMessageAPI || packetAt(i).getMsgBoundary() & PB_LAST)
-            {
-                m_iFirstNonreadPos = incPos(i);
-                break;
-            }
-        }
-
-        if (pos == m_iFirstNonreadPos || !m_entries[m_iFirstNonreadPos].pUnit)
             break;
-
-        pos = m_iFirstNonreadPos;
+        }
+    }
+    if (i != m_iFirstNonreadPos)
+    {
+        m_iFirstNonreadPos = i;
     }
 }
 
