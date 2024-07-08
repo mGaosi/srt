@@ -9267,6 +9267,18 @@ void srt::CUDT::processCtrlMulticastSync(const CPacket& ctrlpkt, const sockaddr_
     }
     else
     {
+        const int32_t* sync = (const int32_t*)ctrlpkt.m_pcData;
+        if (ctrlpkt.getLength() >= sizeof(int32_t))
+        {
+            const int32_t last_snd = CSeqNo::decseq(sync[0]);
+            const int32_t last_rcv = m_iRcvCurrSeqNo;
+            if (CSeqNo::seqcmp(last_snd, last_rcv) > 0)
+            {
+                m_iRcvCurrSeqNo = last_snd;
+                ScopedLock lock(m_RcvLossLock);
+                m_pRcvLossList->insert(CSeqNo::incseq(last_rcv), last_snd);
+            }
+        }
         m_pRcvBuffer->addRcvTsbPdDriftSample(ctrlpkt.getMsgTimeStamp(), tsArrival, 0);
     }
 }
