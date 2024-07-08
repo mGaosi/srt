@@ -247,7 +247,7 @@ void CTsbpdTime::updateTsbPdTimeBase(uint32_t usPktTimestamp)
             /* Exiting wrap check period (if for packet delivery head) */
             m_bTsbPdWrapCheck = false;
             m_tsTsbPdTimeBase += microseconds_from(int64_t(CPacket::MAX_TIMESTAMP) + 1);
-            LOGC(tslog.Debug,
+            LOGC(tslog.Note,
                  log << "tsbpd wrap period ends with ts=" << usPktTimestamp << " - NEW TIME BASE: "
                      << FormatTime(m_tsTsbPdTimeBase) << " drift: " << m_DriftTracer.drift() << "us");
         }
@@ -259,7 +259,7 @@ void CTsbpdTime::updateTsbPdTimeBase(uint32_t usPktTimestamp)
     {
         // Approching wrap around point, start wrap check period (if for packet delivery head)
         m_bTsbPdWrapCheck = true;
-        LOGC(tslog.Debug,
+        LOGC(tslog.Note,
              log << "tsbpd wrap period begins with ts=" << usPktTimestamp
                  << " TIME BASE: " << FormatTime(m_tsTsbPdTimeBase) << " drift: " << m_DriftTracer.drift() << "us.");
     }
