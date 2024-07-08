@@ -147,7 +147,7 @@ void CSndBuffer::addBuffer(const char* data, int len, SRT_MSGCTRL& w_mctrl)
 
     ScopedLock bufferguard(m_BufLock);
     // Dynamically increase sender buffer if there is not enough room.
-    while (iNumBlocks + m_iCount >= m_iSize)
+    while (iNumBlocks + m_iCount > m_iSize)
     {
         HLOGC(bslog.Debug, log << "addBuffer: ... still lacking " << (iNumBlocks + m_iCount - m_iSize) << " buffers...");
         increase();
