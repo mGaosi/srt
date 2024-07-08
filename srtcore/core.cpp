@@ -5529,14 +5529,14 @@ void * srt::CUDT::tsbpd(void* param)
         {
             if (info.seq_gap)
             {
-                constexpr int32_t kAdaptiveDelay = SRT_LIVE_DEF_LATENCY_MS;
-                if (self->m_config.iRcvLatency >= kAdaptiveDelay)
+                constexpr int32_t kAdaptiveDelay = 60;//milliseconds
+                if (self->m_iTsbPdDelay_ms >= kAdaptiveDelay)
                 {
                     rxready = true;
                 }
                 else
                 {
-                    auto latency = count_milliseconds(tnow - info.tsbpd_time) + self->m_config.iRcvLatency;
+                    auto latency = count_milliseconds(tnow - info.tsbpd_time) + self->m_iTsbPdDelay_ms;
                     if (latency >= kAdaptiveDelay)
                     {
                         rxready = true;
@@ -5554,14 +5554,9 @@ void * srt::CUDT::tsbpd(void* param)
 #endif
 
 #if ENABLE_LOGGING
-                    const int64_t timediff_us = count_microseconds(tnow - info.tsbpd_time);
-#if ENABLE_HEAVY_LOGGING
-                    HLOGC(tslog.Debug, log << self->CONID() << "tsbpd: DROPSEQ: up to seqno %" << CSeqNo::decseq(info.seqno) << " (" << iDropCnt
-                        << " packets) playable at " << FormatTime(info.tsbpd_time) << " delayed " << (timediff_us / 1000) << "."
-                        << std::setw(3) << std::setfill('0') << (timediff_us % 1000) << " ms");
-#endif
+                    const double timediff_ms = count_microseconds(tnow - info.tsbpd_time) / 1000.0 + self->m_iTsbPdDelay_ms;
                     LOGC(brlog.Warn, log << self->CONID() << "RCV-DROPPED " << iDropCnt << " packet(s). Packet seqno %" << info.seqno << " delayed for "
-                        << (timediff_us / 1000) << "." << std::setw(3) << std::setfill('0') << (timediff_us % 1000) << " ms");
+                        << std::fixed << std::setprecision(3) << timediff_ms << " ms");
 #endif
 
                     tsNextDelivery = steady_clock::time_point();  // Ready to read, nothing to wait for.
