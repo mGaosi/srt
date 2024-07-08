@@ -1199,6 +1199,7 @@ private: // Trace
         time_point sndDurationCounter;      // timers to record the sending Duration
 
     } m_stats;
+    time_point m_tsStartDropTrace;
 
 public:
     static const int SELF_CLOCK_INTERVAL = 64;  // ACK interval for self-clocking

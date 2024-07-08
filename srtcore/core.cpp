@@ -6612,10 +6612,17 @@ int srt::CUDT::sndDropTooLate()
         throw CUDTException(MJ_NOTSUP, MN_INVALBUFFERAPI, 0);
     }
 
+    const time_point tnow = steady_clock::now();
+    const uint32_t uTraceDropCount = m_stats.sndr.dropped.trace.count();
+    if (uTraceDropCount > 0u && (tnow - m_tsStartDropTrace) > seconds_from(1))
+    {
+        m_stats.sndr.dropped.resetTrace();
+        LOGC(qslog.Warn, log << CONID() << "SND-DROP-TRACE: count=" << uTraceDropCount);
+    }
+
     if (m_pSndBuffer->isMoreHalf())
         return 0;
 
-    const time_point tnow = steady_clock::now();
     const int buffdelay_ms = (int) count_milliseconds(m_pSndBuffer->getBufferingDelay(tnow));
 
     // high threshold (msec) at tsbpd_delay plus sender/receiver reaction time (2 * 10ms)
@@ -6626,7 +6633,6 @@ int srt::CUDT::sndDropTooLate()
     // XXX Make SRT_TLPKTDROP_MINTHRESHOLD_MS option-configurable
     const int threshold_ms = (m_config.iSndDropDelay >= 0)
         ? std::max(m_iPeerTsbPdDelay_ms + m_config.iSndDropDelay, +SRT_TLPKTDROP_MINTHRESHOLD_MS)
-            + (2 * COMM_SYN_INTERVAL_US / 1000)
         : 0;
 
     if (threshold_ms == 0 || buffdelay_ms <= threshold_ms)
@@ -6643,11 +6649,18 @@ int srt::CUDT::sndDropTooLate()
     m_iFlowWindowSize = m_iFlowWindowSize + dpkts;
 
     // If some packets were dropped update stats, socket state, loss list and the parent group if any.
-    enterCS(m_StatsLock);
-    m_stats.sndr.dropped.count(stats::BytesPackets((uint64_t) dbytes, (uint32_t) dpkts));
-    leaveCS(m_StatsLock);
+    if (!m_isMulticast)
+    {
+        enterCS(m_StatsLock);
+        if (m_stats.sndr.dropped.trace.count() == 0u)
+        {
+            m_tsStartDropTrace = tnow;
+        }
+        m_stats.sndr.dropped.count(stats::BytesPackets((uint64_t)dbytes, (uint32_t)dpkts));
+        leaveCS(m_StatsLock);
+    }
 
-    IF_HEAVY_LOGGING(const int32_t realack = m_iSndLastDataAck);
+    const int32_t realack = m_iSndLastDataAck;
     const int32_t fakeack = CSeqNo::incseq(m_iSndLastDataAck, dpkts);
 
     m_iSndLastAck     = fakeack;
@@ -6662,9 +6675,12 @@ int srt::CUDT::sndDropTooLate()
         m_iSndCurrSeqNo = minlastack;
     }
 
-    HLOGC(qslog.Debug,
-          log << CONID() << "SND-DROP: %(" << realack << "-" << m_iSndCurrSeqNo << ") n=" << dpkts << "pkt " << dbytes
-              << "B, span=" << buffdelay_ms << " ms, FIRST #" << first_msgno);
+    if (!m_isMulticast)
+    {
+        LOGC(qslog.Debug,
+            log << CONID() << "SND-DROP: %(" << realack << "-" << m_iSndCurrSeqNo << ") n=" << dpkts << "pkt " << dbytes
+            << "B, span=" << buffdelay_ms << " ms, FIRST #" << first_msgno);
+    }
 
 #if ENABLE_BONDING
     // This is done with a presumption that the group
