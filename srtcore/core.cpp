@@ -5029,6 +5029,7 @@ bool srt::CUDT::setupMulticast() ATR_NOEXCEPT
     m_bPeerTLPktDrop = true;
     m_iFlowWindowSize = m_config.flightCapacity();
     m_iSRTT = 1000;
+    m_iRTTVar = 200;
     m_iPeerISN = 0;
     if (!prepareBuffers(nullptr))
     {
@@ -9261,6 +9262,7 @@ void srt::CUDT::processCtrlMulticastSync(const CPacket& ctrlpkt, const sockaddr_
         m_bTsbPd = true;
         m_iTsbPdDelay_ms = sync[1];
         m_PeerAddr = src;
+        m_iSRTT = 2000;
         updateSrtRcvSettings();
     }
     else
