@@ -8877,9 +8877,16 @@ void srt::CUDT::processCtrlAckAck(const CPacket& ctrlpkt, const time_point& tsAr
             if (CSeqNo::seqcmp(last_snd, last_rcv) > 0)
             {
                 m_iRcvCurrSeqNo = last_snd;
-                HLOGC(inlog.Debug, log << CONID() << "Dectect loss by ACKACK " << CSeqNo::incseq(last_rcv) << "-" << last_snd);
+                const int32_t next_rcv = CSeqNo::incseq(last_rcv);
+                HLOGC(inlog.Debug, log << CONID() << "Dectect loss by ACKACK " << next_rcv << "-" << last_snd);
+                if (!m_PacketFilter || m_PktFilterRexmitLevel == SRT_ARQ_ALWAYS)
+                {
+                    loss_seqs_t loss;
+                    loss.push_back({ next_rcv , last_snd });
+                    sendLossReport(loss);
+                }
                 ScopedLock lock(m_RcvLossLock);
-                m_pRcvLossList->insert(CSeqNo::incseq(last_rcv), last_snd);
+                m_pRcvLossList->insert(next_rcv, last_snd);
             }
         }
     }
