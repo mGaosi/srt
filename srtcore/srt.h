@@ -239,6 +239,8 @@ typedef enum SRT_SOCKOPT {
    SRTO_E_SIZE // Always last element, not a valid option.
 } SRT_SOCKOPT;
 
+#define SRT_EXT_MULTICAST 1
+#define SRT_LIVE_SUBPACK 1
 
 #ifdef __cplusplus
 
