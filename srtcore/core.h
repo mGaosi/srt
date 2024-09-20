@@ -1200,6 +1200,7 @@ private: // Trace
 
     } m_stats;
     time_point m_tsStartDropTrace;
+    time_point m_tsStartOverflowTrace;
 
 public:
     static const int SELF_CLOCK_INTERVAL = 64;  // ACK interval for self-clocking

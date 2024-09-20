@@ -187,6 +187,8 @@ struct Receiver
     Metric<Packets> sentAck; // The number of ACK packets sent by the receiver.
     Metric<Packets> sentNak; // The number of NACK packets sent by the receiver.
 
+    Metric<Packets> recvdOverflow; // The number of no room to store incoming packets.
+
     void reset()
     {
         recvd.reset();
@@ -201,6 +203,7 @@ struct Receiver
         lossFilter.reset();
         sentAck.reset();
         sentNak.reset();
+        recvdOverflow.reset();
     }
 
     void resetTrace()
@@ -217,6 +220,7 @@ struct Receiver
         lossFilter.resetTrace();
         sentAck.resetTrace();
         sentNak.resetTrace();
+        recvdOverflow.resetTrace();
     }
 };
 

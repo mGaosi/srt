@@ -10314,11 +10314,15 @@ int srt::CUDT::handleSocketPacketReception(const vector<CUnit*>& incoming, bool&
             }
             else
             {
-                LOGC(qrlog.Warn, log << CONID() << "No room to store incoming packet seqno " << rpkt.seqno()
+                if (m_stats.rcvr.recvdOverflow.trace.count() == 0)
+                {
+                    LOGC(qrlog.Warn, log << CONID() << "No room to store incoming packet %" << rpkt.seqno()
                         << ", insert offset " << bufidx << ". "
                         << m_pRcvBuffer->strFullnessState(m_iRcvLastAck, steady_clock::now())
                     );
-
+                    m_tsStartOverflowTrace = steady_clock::now();
+                }
+                m_stats.rcvr.recvdOverflow.count(1);
                 return -1;
             }
         }
@@ -11816,6 +11820,17 @@ void srt::CUDT::checkTimers()
         << " AckInterval=" << m_iACKInterval
         << " pkt-count=" << m_iPktCount << " liteack-count=" << m_iLightACKCount);
 #endif
+
+    // Check if it is time to trace
+    const uint32_t uOverflowCount = m_stats.rcvr.recvdOverflow.trace.count();
+    if (uOverflowCount > 0u && (currtime - m_tsStartOverflowTrace) > seconds_from(1))
+    {
+        m_stats.rcvr.recvdOverflow.resetTrace();
+        m_tsStartOverflowTrace = currtime;
+        LOGC(xtlog.Warn, log << CONID()
+            << "RECVD-OVERFLOW-TRACE total=" << m_stats.rcvr.recvdOverflow.total.count() << " count=" << uOverflowCount << ". "
+            << m_pRcvBuffer->strFullnessState(m_iRcvLastAck, steady_clock::now()));
+    }
 
     // Check if it is time to send ACK
     int debug_decision = checkACKTimer(currtime);
