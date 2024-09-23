@@ -145,9 +145,18 @@ public:
             // Full capacity is available.
             return capacity();
         }
-
-        // Note: CSeqNo::seqlen(n, n) returns 1.
-        return capacity() - CSeqNo::seqlen(iRBufSeqNo, iFirstUnackSeqNo) + 1;
+        else
+        {
+            const int iPkts = CSeqNo::seqlen(iRBufSeqNo, iFirstUnackSeqNo);
+            if (iPkts > capacity())
+            {
+                return 0;
+            }
+            else
+            {
+                return capacity() - iPkts + 1;
+            }
+        }
     }
 
     /// @brief Checks if the buffer has packets available for reading regardless of the TSBPD.

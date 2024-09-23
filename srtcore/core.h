@@ -987,8 +987,9 @@ private: // Receiving related data
     int32_t m_iAckSeqNo;                         // Last ACK sequence number
     sync::atomic<int32_t> m_iRcvCurrSeqNo;       // (RCV) Largest received sequence number. RcvQTh, TSBPDTh.
     int32_t m_iRcvCurrPhySeqNo;                  // Same as m_iRcvCurrSeqNo, but physical only (disregarding a filter)
-    bool m_bBufferWasFull;                        // Indicate that RX buffer was full last time a ack was sent
+    bool m_bBufferWasFull;                       // Indicate that RX buffer was full last time a ack was sent
     int32_t m_iPeerISN;                          // Initial Sequence Number of the peer side
+    int32_t m_iPeerLSN;                          // Last Sequence Number of peer side
 
     uint32_t m_uPeerSrtVersion;
     uint32_t m_uPeerSrtFlags;

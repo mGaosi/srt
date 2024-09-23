@@ -508,17 +508,10 @@ int srt::CRcvLossList::insert(int32_t seqno1, int32_t seqno2)
     {
         if (CSeqNo::seqcmp(seqno2, m_iLargestSeq) > 0)
         {
-            LOGC(qrlog.Warn,
-                 log << "RCV-LOSS/insert: seqno1=" << seqno1 << " too small, adjust to "
-                     << CSeqNo::incseq(m_iLargestSeq));
             seqno1 = CSeqNo::incseq(m_iLargestSeq);
         }
         else
         {
-            LOGC(qrlog.Warn,
-                 log << "RCV-LOSS/insert: (" << seqno1 << "," << seqno2
-                     << ") to be inserted is too small: m_iLargestSeq=" << m_iLargestSeq << ", m_iLength=" << m_iLength
-                     << ", m_iHead=" << m_iHead << ", m_iTail=" << m_iTail << " -- REJECTING");
             return 0;
         }
     }

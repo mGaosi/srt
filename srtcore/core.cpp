@@ -5717,6 +5717,7 @@ void srt::CUDT::setInitialRcvSeq(int32_t isn)
 #endif
     m_iRcvLastAckAck = isn;
     m_iRcvCurrSeqNo = CSeqNo::decseq(isn);
+    m_iPeerLSN = m_iPeerISN;
 
     sync::ScopedLock rb(m_RcvBufferLock);
     if (m_pRcvBuffer)
@@ -8873,21 +8874,26 @@ void srt::CUDT::processCtrlAckAck(const CPacket& ctrlpkt, const time_point& tsAr
         if (ctrlpkt.getLength() >= 8)
         {
             const int32_t* param = (int32_t*)(ctrlpkt.m_pcData);
-            const int32_t last_snd = param[1];
-            const int32_t last_rcv = m_iRcvCurrSeqNo;
-            if (CSeqNo::seqcmp(last_snd, last_rcv) > 0)
+            const int32_t last = param[1];
+            if (CSeqNo::seqcmp(last, m_iPeerLSN) > 0)
             {
-                m_iRcvCurrSeqNo = last_snd;
-                const int32_t next_rcv = CSeqNo::incseq(last_rcv);
-                HLOGC(inlog.Debug, log << CONID() << "Dectect loss by ACKACK " << next_rcv << "-" << last_snd);
-                if (!m_PacketFilter || m_PktFilterRexmitLevel == SRT_ARQ_ALWAYS)
+                const int32_t next = CSeqNo::incseq(m_iPeerLSN);
+                m_iPeerLSN = last;
+                HLOGC(inlog.Debug, log << CONID() << "Dectect loss by ACKACK " << next << "-" << last);
+                if (m_pRcvBuffer->getAvailSize(last) > 0)
                 {
-                    loss_seqs_t loss;
-                    loss.push_back({ next_rcv , last_snd });
-                    sendLossReport(loss);
+                    if (!m_PacketFilter || m_PktFilterRexmitLevel == SRT_ARQ_ALWAYS)
+                    {
+                        loss_seqs_t loss;
+                        loss.push_back({ next , last });
+                        sendLossReport(loss);
+                    }
+                    if (m_pRcvLossList)
+                    {
+                        ScopedLock lock(m_RcvLossLock);
+                        m_pRcvLossList->insert(next, last);
+                    }
                 }
-                ScopedLock lock(m_RcvLossLock);
-                m_pRcvLossList->insert(next_rcv, last_snd);
             }
         }
     }
@@ -9223,6 +9229,10 @@ void srt::CUDT::processCtrlDropReq(const CPacket& ctrlpkt)
         HLOGC(inlog.Debug, log << CONID() << "DROPREQ: dropping %"
             << dropdata[0] << "-" << dropdata[1] << " <-- set as current seq");
         m_iRcvCurrSeqNo = dropdata[1];
+        if (CSeqNo::seqcmp(dropdata[1], m_iPeerLSN) > 0)
+        {
+            m_iPeerLSN = dropdata[1];
+        }
     }
     else
     {
@@ -9271,13 +9281,17 @@ void srt::CUDT::processCtrlMulticastSync(const CPacket& ctrlpkt, const sockaddr_
         const int32_t* sync = (const int32_t*)ctrlpkt.m_pcData;
         if (ctrlpkt.getLength() >= sizeof(int32_t))
         {
-            const int32_t last_snd = CSeqNo::decseq(sync[0]);
-            const int32_t last_rcv = m_iRcvCurrSeqNo;
-            if (CSeqNo::seqcmp(last_snd, last_rcv) > 0)
+            const int32_t last = CSeqNo::decseq(sync[0]);
+            if (CSeqNo::seqcmp(last, m_iPeerLSN) > 0)
             {
-                m_iRcvCurrSeqNo = last_snd;
-                ScopedLock lock(m_RcvLossLock);
-                m_pRcvLossList->insert(CSeqNo::incseq(last_rcv), last_snd);
+                const int32_t next = CSeqNo::incseq(m_iPeerLSN);
+                m_iPeerLSN = last;
+                HLOGC(inlog.Debug, log << CONID() << "Dectect loss by SYNC " << next << "-" << last);
+                if (m_pRcvBuffer->getAvailSize(last) > 0)
+                {
+                    ScopedLock lock(m_RcvLossLock);
+                    m_pRcvLossList->insert(next, last);
+                }
             }
         }
         m_pRcvBuffer->addRcvTsbPdDriftSample(ctrlpkt.getMsgTimeStamp(), tsArrival, 0);
@@ -10467,6 +10481,10 @@ int srt::CUDT::handleSocketPacketReception(const vector<CUnit*>& incoming, bool&
         if (CSeqNo::seqcmp(rpkt.seqno(), m_iRcvCurrSeqNo) > 0)
         {
             m_iRcvCurrSeqNo = rpkt.seqno(); // Latest possible received
+            if (CSeqNo::seqcmp(rpkt.seqno(), m_iPeerLSN) > 0)
+            {
+                m_iPeerLSN = rpkt.seqno();
+            }
         }
         else
         {
