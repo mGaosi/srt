@@ -5046,7 +5046,6 @@ bool srt::CUDT::setupMulticast() ATR_NOEXCEPT
         LOGC(aslog.Error, log << CONID() << "Multicast setup crypter fail.");
         return false;
     }
-    m_tdACKInterval = microseconds_from(0);
     m_bPeerNakReport = true;
     m_bPeerRexmitFlag = true;
     m_bPeerTsbPd = true;
@@ -6648,11 +6647,10 @@ int srt::CUDT::sndDropTooLate()
     if (dpkts <= 0)
         return 0;
 
-    m_iFlowWindowSize = m_iFlowWindowSize + dpkts;
-
-    // If some packets were dropped update stats, socket state, loss list and the parent group if any.
     if (!m_isMulticast)
     {
+        // If some packets were dropped update stats, socket state, loss list and the parent group if any.
+        m_iFlowWindowSize = m_iFlowWindowSize + dpkts;
         enterCS(m_StatsLock);
         if (m_stats.sndr.dropped.trace.count() == 0u)
         {
@@ -7991,7 +7989,7 @@ void srt::CUDT::sendCtrl(UDTMessageType pkttype, const int32_t* lparam, void* rp
         }
         else
         {
-            if (pkttype != UMSG_LOSSREPORT)
+            if (pkttype != UMSG_LOSSREPORT && pkttype != UMSG_ACK)
             {
                 return;
             }
@@ -8208,7 +8206,7 @@ int srt::CUDT::sendCtrlAck(CPacket& ctrlpkt, int size)
     }
     // send out a lite ACK
     // to save time on buffer processing and bandwidth/AS measurement, a lite ACK only feeds back an ACK number
-    if (size == SEND_LITE_ACK && !bNeedFullAck)
+    if (size == SEND_LITE_ACK && !bNeedFullAck && !m_isMulticast)
     {
         bufflock.unlock();
         ctrlpkt.pack(UMSG_ACK, NULL, &ack, size);
@@ -8344,6 +8342,11 @@ int srt::CUDT::sendCtrlAck(CPacket& ctrlpkt, int size)
             }
 #endif
             CGlobEvent::triggerEvent();
+        }
+        if (m_isMulticast)
+        {
+            m_iRcvLastAckAck = m_iRcvLastAck;
+            return nbsent;
         }
     }
     else if (ack == m_iRcvLastAck && !bNeedFullAck)
